@@ -26,6 +26,14 @@ class EntryPayload(BaseModel):
 
     values: dict[str, Any] = Field(default_factory=dict)
     remark: str | None = None
+    # 兼容直接把动作放在顶层的调用方；统一由 resolved_values 合并进 values。
+    action: str | None = None
+
+    def resolved_values(self) -> dict[str, Any]:
+        merged = dict(self.values)
+        if self.action and not merged.get("action"):
+            merged["action"] = self.action
+        return merged
 
 
 

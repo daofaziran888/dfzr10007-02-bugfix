@@ -14,6 +14,7 @@ const columns = [
   "集市状态"
 ]
 const actions = [
+  "构建集市",
   "发布集市",
   "废弃集市",
   "重建集市"
@@ -45,6 +46,7 @@ export default function MartView() {
   const [rows, setRows] = useState<Row[]>([])
   const [total, setTotal] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
   const [filters, setFilters] = useState<Record<string, string>>({})
   const filterFields = useMemo(() => columns.slice(0, 3), [])
 
@@ -73,13 +75,20 @@ export default function MartView() {
     try {
       const response = await request(`${ENDPOINT}/${row.id}/actions`, {
         method: 'POST',
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ values: { action } }),
       })
       if (!response.ok) {
         throw new Error('数据集市构建动作未生效，请稍后重试')
       }
+      // 后端以 { ok, message } 表达业务结果，动作被挡下时 HTTP 仍是 200。
+      const payload = await response.json()
+      if (!payload.ok) {
+        throw new Error(payload.message || '数据集市构建动作未生效')
+      }
+      setActionMessage(payload.message ?? '')
       await reload()
     } catch (error) {
+      setActionMessage('')
       setErrorMessage(error instanceof Error ? error.message : '数据集市构建操作失败')
     }
   }
@@ -155,6 +164,7 @@ export default function MartView() {
 
       <footer className="page-foot">
         <span>共 {total} 条数据集市构建记录</span>
+        {actionMessage && <span className="hint-text">{actionMessage}</span>}
         {errorMessage && <span className="error-text">{errorMessage}</span>}
       </footer>
     </section>

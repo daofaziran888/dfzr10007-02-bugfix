@@ -8,6 +8,8 @@ const columns = [
   "数据源名称",
   "导出格式",
   "字段选择",
+  "刷新策略",
+  "分区字段",
   "筛选条件",
   "导出上限",
   "文件大小",
@@ -45,6 +47,7 @@ export default function ExportView() {
   const [rows, setRows] = useState<Row[]>([])
   const [total, setTotal] = useState(0)
   const [errorMessage, setErrorMessage] = useState('')
+  const [actionMessage, setActionMessage] = useState('')
   const [filters, setFilters] = useState<Record<string, string>>({})
   const filterFields = useMemo(() => columns.slice(0, 3), [])
 
@@ -73,13 +76,20 @@ export default function ExportView() {
     try {
       const response = await request(`${ENDPOINT}/${row.id}/actions`, {
         method: 'POST',
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ values: { action } }),
       })
       if (!response.ok) {
         throw new Error('分析导出中心动作未生效，请稍后重试')
       }
+      // 后端以 { ok, message } 表达业务结果，动作被挡下时 HTTP 仍是 200。
+      const payload = await response.json()
+      if (!payload.ok) {
+        throw new Error(payload.message || '分析导出中心动作未生效')
+      }
+      setActionMessage(payload.message ?? '')
       await reload()
     } catch (error) {
+      setActionMessage('')
       setErrorMessage(error instanceof Error ? error.message : '分析导出中心操作失败')
     }
   }
@@ -155,6 +165,7 @@ export default function ExportView() {
 
       <footer className="page-foot">
         <span>共 {total} 条分析导出中心记录</span>
+        {actionMessage && <span className="hint-text">{actionMessage}</span>}
         {errorMessage && <span className="error-text">{errorMessage}</span>}
       </footer>
     </section>

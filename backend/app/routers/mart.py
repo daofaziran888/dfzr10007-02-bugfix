@@ -1,4 +1,8 @@
-"""数据集市构建接口：维护集市定义，覆盖发布集市、废弃集市、重建集市等动作。"""
+"""数据集市构建接口：维护集市定义，覆盖发布集市、废弃集市、重建集市等动作。
+
+固定路径（/export、/snapshots）必须声明在 /{entry_id} 之前，
+否则会被动态路径抢先匹配，导出入口会拿到 422。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -30,8 +34,31 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出数据集市构建清单：与列表页使用同一份字段选择、刷新策略与状态。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "mart", "total": total, "items": items}
+
+
+@router.get("/snapshots")
+def list_snapshots() -> dict[str, Any]:
+    """发布结果快照（导出文件）清单：重复发布不会生成重复快照。"""
+    items, total = service.list_snapshots()
+    return {"module": "mart", "total": total, "items": items}
+
+
+@router.get("/snapshots/{version}")
+def get_snapshot(version: str) -> dict[str, Any]:
+    """按版本读取一份发布快照，用于核对导出文件里的字段选择与刷新策略。"""
+    snapshot = service.get_snapshot(version)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail=f"发布快照 {version} 不存在")
+    return snapshot
+
+
 @router.get("/{entry_id}", response_model=dict)
-def get_entry(entry_id: int) -> dict:
+def get_entry(entry_id: str) -> dict:
     """读取单条集市定义明细；不存在时给出可读的错误说明。"""
     entry = service.get_entry(entry_id)
     if entry is None:
@@ -42,24 +69,22 @@ def get_entry(entry_id: int) -> dict:
 @router.post("", response_model=ActionResult)
 def create_entry(payload: EntryPayload) -> ActionResult:
     """登记一条集市定义，缺字段时说明原因而不是静默丢弃。"""
-    entry, missing = service.create_entry(payload.values)
+    entry, missing = service.create_entry(payload.resolved_values())
     if missing:
         return ActionResult(ok=False, message=f"缺少必填字段：{'、'.join(missing)}")
     return ActionResult(ok=True, message="集市定义已登记", entry=entry)
 
 
 @router.post("/{entry_id}/actions", response_model=ActionResult)
-def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
-    """对单条集市定义执行发布集市、废弃集市、重建集市；不允许的动作会被拦下并说明原因。"""
-    action = str(payload.values.get("action") or "").strip()
-    entry, message = service.run_action(entry_id, action)
+def run_action(entry_id: str, payload: EntryPayload) -> ActionResult:
+    """对单条集市定义执行构建、发布、废弃、重建。
+
+    越级动作、已发布倒回构建中、已废弃恢复都会被拦下；
+    重复发布沿用第一次发布结果；失败时清单与导出文件一起回退。
+    """
+    values = payload.resolved_values()
+    action = str(values.get("action") or "").strip()
+    entry, message = service.run_action(entry_id, action, values)
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出数据集市构建清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "mart", "total": total, "items": items}
